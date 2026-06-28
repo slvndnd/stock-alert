@@ -1,0 +1,11 @@
+products:
+  - id: midea-portasplit
+    name: Midea PortaSplit
+
+    search:
+      - "Midea PortaSplit"
+      - "Midea Portasplit"
+
+    expected_price:
+      min: 700
+      max: 1200

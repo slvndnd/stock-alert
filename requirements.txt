@@ -1,0 +1,5 @@
+playwright==1.54.*
+beautifulsoup4==4.13.*
+lxml==6.*
+PyYAML==6.*
+jinja2==3.1.*
