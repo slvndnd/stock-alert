@@ -1,21 +1,18 @@
-import requests
+from src.browser import Browser
+from src.extractor import extract_json_ld
+from src.robust_extractor import RobustExtractor
 
 
 class BaseScraper:
 
-    headers = {
-        "User-Agent":
-        "Mozilla/5.0"
-    }
+    def __init__(self, name):
+        self.name = name
+        self.extractor = RobustExtractor()
 
-    def download(self, url):
+    def open_page(self, url):
 
-        response = requests.get(
-            url,
-            headers=self.headers,
-            timeout=30
-        )
-
-        response.raise_for_status()
-
-        return response.text
+        with Browser() as browser:
+            page = browser.new_page()
+            page.goto(url, timeout=60000)
+            page.wait_for_timeout(4000)
+            return page.content()

@@ -3,36 +3,6 @@ import re
 from bs4 import BeautifulSoup
 
 
-def safe_json_loads(raw: str):
-    """
-    Parse JSON-LD de manière tolérante aux erreurs réelles du web
-    """
-
-    if not raw:
-        return None
-
-    raw = raw.strip()
-
-    # 🔥 suppression caractères invisibles
-    raw = raw.replace("\n", " ").replace("\t", " ")
-
-    # 🔥 tentative directe
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
-
-    # 🔥 fallback : extraire uniquement le premier objet JSON
-    try:
-        match = re.search(r'\{.*\}', raw)
-        if match:
-            return json.loads(match.group(0))
-    except:
-        return None
-
-    return None
-
-
 class RobustExtractor:
 
     def extract(self, html: str):
@@ -45,55 +15,91 @@ class RobustExtractor:
             "name": None
         }
 
+        # ----------------------------
+        # 🥇 1. JSON-LD (priorité)
+        # ----------------------------
         scripts = soup.find_all("script", type="application/ld+json")
 
         for s in scripts:
 
-            data = safe_json_loads(s.string)
+            try:
+                if not s.string:
+                    continue
 
-            if not data:
+                data = json.loads(s.string.strip())
+
+                if isinstance(data, list):
+                    data = data[0]
+
+                if not isinstance(data, dict):
+                    continue
+
+                if data.get("@type") != "Product":
+                    continue
+
+                # name
+                if data.get("name"):
+                    result["name"] = data["name"]
+
+                offers = data.get("offers")
+
+                if isinstance(offers, list):
+                    offers = offers[0]
+
+                if isinstance(offers, dict):
+
+                    price = offers.get("price")
+                    if price:
+                        try:
+                            result["price"] = float(price)
+                        except:
+                            pass
+
+                    availability = str(offers.get("availability", ""))
+
+                    if "InStock" in availability:
+                        result["available"] = True
+                    elif "OutOfStock" in availability:
+                        result["available"] = False
+
+            except:
                 continue
 
-            if isinstance(data, list):
-                data = data[0]
+        # ----------------------------
+        # 🥈 2. META / MICRODATA fallback
+        # ----------------------------
 
-            if not isinstance(data, dict):
-                continue
+        if not result["price"]:
+            meta_price = soup.select_one("meta[property='product:price:amount']")
+            if meta_price:
+                try:
+                    result["price"] = float(meta_price["content"])
+                except:
+                    pass
 
-            # 🔥 filtre produit uniquement
-            if data.get("@type") not in ["Product", "Offer", "ProductGroup"]:
-                continue
+        # ----------------------------
+        # 🥉 3. TEXT HEURISTICS (IMPORTANT)
+        # ----------------------------
 
-            offers = data.get("offers", {})
-
-            if isinstance(offers, list):
-                offers = offers[0]
-
-            if isinstance(offers, dict):
-
-                price = offers.get("price")
-                if price:
-                    try:
-                        result["price"] = float(price)
-                    except:
-                        pass
-
-                availability = offers.get("availability", "")
-                if "InStock" in availability:
-                    result["available"] = True
-                elif "OutOfStock" in availability:
-                    result["available"] = False
-
-            if data.get("name"):
-                result["name"] = data["name"]
-
-        # 🔥 fallback texte brut (ultra important)
         text = soup.get_text(" ", strip=True).lower()
 
-        if any(x in text for x in ["en stock", "disponible", "ajouter au panier"]):
+        # disponibilité
+        if any(w in text for w in ["en stock", "disponible", "ajouter au panier"]):
             result["available"] = True
 
-        if any(x in text for x in ["rupture", "indisponible", "épuisé"]):
+        if any(w in text for w in ["rupture", "indisponible", "épuisé"]):
             result["available"] = False
+
+        # ----------------------------
+        # 💡 4. PRICE REGEX fallback (TRÈS utile)
+        # ----------------------------
+
+        if not result["price"]:
+            match = re.search(r"(\d{2,5}[.,]\d{2})\s?€", text)
+            if match:
+                try:
+                    result["price"] = float(match.group(1).replace(",", "."))
+                except:
+                    pass
 
         return result
